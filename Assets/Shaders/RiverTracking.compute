@@ -1,0 +1,115 @@
+﻿// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+// Create a RenderTexture with enableRandomWrite flag and set it
+// with cs.SetTexture
+
+RWTexture2D<float4> waterlevel;  // Size = 512 * 512
+Texture2D<float4> Normal;       // Size = 514 * 514, pad (0,1,0) at border
+int waterlevelResolution;
+
+//uint NumSamples;
+
+uint seed;
+
+uint nextRandInt()
+{
+    seed = (seed ^ 61) ^ (seed >> 16);
+    seed *= 9;
+    seed = seed ^ (seed >> 4);
+    seed *= 0x27d4eb2d;
+    seed = seed ^ (seed >> 15);
+    return seed;
+}
+
+float nextRandFloat(){
+    return (nextRandInt() % 65536) * (1.0 / 65535.0);
+}
+
+float2 randomChooseDir(float3 inNorm){
+    float dirscore[8];
+
+    float3 candidateDir[8] = { float3(1, 0, 0) , float3(0.7071, 0, 0.7071), float3(0, 0, 1), float3(-0.7071, 0, 0.7071), 
+    float3(-1, 0, 0), float3(-0.7071, 0, -0.7071), float3(0, 0, -1), float3(0.7071, 0, -0.7071) }; 
+
+    dirscore[0] = max(0, dot(candidateDir[0], inNorm));
+    dirscore[1] = max(0, dot(candidateDir[1], inNorm));
+    dirscore[2] = max(0, dot(candidateDir[2], inNorm));
+    dirscore[3] = max(0, dot(candidateDir[3], inNorm));
+    dirscore[4] = max(0, dot(candidateDir[4], inNorm));
+    dirscore[5] = max(0, dot(candidateDir[5], inNorm));
+    dirscore[6] = max(0, dot(candidateDir[6], inNorm));
+    dirscore[7] = max(0, dot(candidateDir[7], inNorm));
+    
+    float dirscoreSum = dirscore[0] + dirscore[1] + dirscore[2] + dirscore[3] + dirscore[4] + dirscore[5] + dirscore[6] + dirscore[7];
+
+    float p = nextRandFloat() * dirscoreSum;
+    for (uint i = 0; i != 8; ++i){
+        p -= dirscore[i];
+        if (p < 0){
+            return float2(candidateDir[i].x, candidateDir[i].z);
+        }
+    }
+    return float2(candidateDir[7].x, candidateDir[7].z);
+}
+
+float3 UnpackNormal(float3 inNorm){
+    return (inNorm - 0.5) * 2.0; 
+}
+
+// input range in [0,1]
+float3 interpolateNormal(float2 pos){
+    float worldPosx = pos.x * float(waterlevelResolution);
+    float worldPosy = pos.y * float(waterlevelResolution);
+    int gridx0 = int(floor(worldPosx - 0.5)) + 1;  // [0,512], real sampling pos.x = gridx0 - 0.5
+    int gridx1 = gridx0 + 1;                       // [1,513]
+    int gridy0 = int(floor(worldPosy - 0.5)) + 1;
+    int gridy1 = gridy0 + 1;
+
+    float distx0 = abs(worldPosx - ((float)gridx0 - 0.5));
+    float disty0 = abs(worldPosy - ((float)gridy0 - 0.5));
+    
+    float3 normx0 = lerp(UnpackNormal(Normal[int2(gridx0, gridy0)].xyz), UnpackNormal(Normal[int2(gridx0, gridy1)].xyz), disty0);
+    float3 normx1 = lerp(UnpackNormal(Normal[int2(gridx1, gridy0)].xyz), UnpackNormal(Normal[int2(gridx1, gridy1)].xyz), disty0);
+    float3 n = lerp(normx0, normx1, distx0);
+    normalize(n);
+    return n;
+}
+
+[numthreads(8,8,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    float x = 0;
+    seed = id.x * 1024 + id.y;
+    
+    float waterRemaining = 1;
+    float2 pos = float2(nextRandFloat(), nextRandFloat());
+    bool outflow = false;
+
+    for (uint t = 0; t != 300; t++){
+        int2 pos_int = int2(int(floor(pos.x * waterlevelResolution)), int(floor(pos.y * waterlevelResolution)));
+        waterlevel[pos_int] += float4(waterRemaining * 0.01, 0, 0, 0);
+        waterRemaining *= (1 - 0.01);
+        
+        float3 normal = interpolateNormal(pos);
+        if (pow(normal.x, 2) + pow(normal.z, 2) < 0.000001){
+            break;
+        }
+        else{
+            normal.y *= 0.1;
+            normalize(normal);
+            float2 stepDir = randomChooseDir(normal);
+            pos += 0.001 * stepDir;
+            if (pos.x < 0 || pos.x >= 1 || pos.y < 0 || pos.y >= 1){
+                outflow = true;
+                break;
+            }
+        }
+    }
+
+    // Use the second channel to represent inflow
+    if (!outflow){
+        int2 pos_int = int2(int(floor(pos.x * waterlevelResolution)), int(floor(pos.y * waterlevelResolution)));
+        waterlevel[pos_int] += float4(waterRemaining, 1, 0, 0);
+    }
+}
