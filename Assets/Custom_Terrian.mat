@@ -46,12 +46,18 @@ Material:
     m_Floats:
     - _CliffNess: 2
     - _Displacement: 0.3
+    - _RockLine: 0.68
     - _Tess: 4
+    - _glacierSnowLine: 0.663
+    - _hiSnowLine: 0.76
+    - _loSnowLine: 0.7
+    - _normalSnowLine: 0.731
     m_Colors:
     - _CliffColor: {r: 0.20754719, g: 0.15465343, b: 0.028390896, a: 1}
     - _Color: {r: 1, g: 1, b: 1, a: 0}
     - _GroundColor: {r: 0.024875412, g: 0.4056604, b: 0.2167213, a: 1}
     - _LakeColor: {r: 0, g: 0.1, b: 0.8, a: 1}
-    - _SnowColor: {r: 0.46666667, g: 0.36862746, b: 0.35686275, a: 1}
+    - _RockColor: {r: 0.46666667, g: 0.36862746, b: 0.35686275, a: 1}
+    - _SnowColor: {r: 0.7877358, g: 0.93110925, b: 1, a: 1}
     - _SpecColor: {r: 0.5, g: 0.5, b: 0.5, a: 0.5}
     - _WaterColor: {r: 0, g: 0.3, b: 0.6, a: 1}

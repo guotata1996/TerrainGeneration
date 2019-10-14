@@ -8,6 +8,7 @@ public class InitTerrianFromHeightMap : MonoBehaviour
     // Start is called before the first frame update
     [Header("Input")]public Texture2D heightMap;
     public Material material;
+    public Material smoothener;
 
     // Just same as resolutgion of heightMap; larger value makes no sense
     public int heightMapResolution = 513; 
@@ -51,7 +52,13 @@ public class InitTerrianFromHeightMap : MonoBehaviour
 
         Texture2D waterlevel = GetComponent<RiverCreator>().ComputeWaterLevel(true);
         outTerrian.GetComponent<Terrain>().materialTemplate.SetTexture("_WaterLevel", waterlevel);
+
         Texture2D lakes = GetComponent<RiverCreator>().GatherBasinWater(waterlevel);
-        outTerrian.GetComponent<Terrain>().materialTemplate.SetTexture("_Lakes", lakes);
+        RenderTexture lake_smooth = new RenderTexture(lakes.width, lakes.height, 16);
+        smoothener.SetTexture("_MainTex", lakes);
+        Graphics.Blit(null, lake_smooth, smoothener);
+        outTerrian.GetComponent<Terrain>().materialTemplate.SetTexture("_Lakes", lake_smooth);
+
+
     }
 }

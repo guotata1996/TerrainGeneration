@@ -6,11 +6,15 @@ using Priority_Queue;
 [RequireComponent(typeof(InitTerrianFromHeightMap))]
 public class RiverCreator : MonoBehaviour
 {
-    [SerializeField]public int randomCount = 50000;
+    [SerializeField]public int randomCount = 100000;
     [SerializeField]public float penetrationRate = 0.01f;
+    [SerializeField]public float dirRandomNess = 0.05f;
     [SerializeField]public float stepLength = 1f;
-    [SerializeField]int maxTraceLength = 150;
+    [SerializeField]int maxTraceLength = 300;
     [SerializeField] protected ComputeShader computeShader;
+    [SerializeField] public float lowSnowline, highSnowline;
+
+    //For ice, (pene, rand) = (0.05, 0.1)
 
     List<Vector3> candidate_dirs = new List<Vector3>{Vector3.forward, Vector3.left, Vector3.back, Vector3.right, 
     (Vector3.forward + Vector3.left).normalized,(Vector3.left + Vector3.back).normalized,
@@ -68,24 +72,32 @@ public class RiverCreator : MonoBehaviour
                     Vector3 interpolatedNormal = terrian.terrainData.GetInterpolatedNormal(
                     (i - 0.5f) / (resolution - 1),
                     (j - 0.5f) / (resolution - 1));
-                    interpolatedNormals.SetPixel(i, j, new Color(interpolatedNormal.x * 0.5f + 0.5f, interpolatedNormal.y * 0.5f + 0.5f, interpolatedNormal.z * 0.5f + 0.5f));
+                    // Height normalized to [0,1];
+                    float interpolatedH = terrian.terrainData.GetInterpolatedHeight(
+                    (i - 0.5f) / (resolution - 1),
+                    (j - 0.5f) / (resolution - 1)
+                    )/100f;
+                    interpolatedNormals.SetPixel(i, j, new Color(interpolatedNormal.x * 0.5f + 0.5f, interpolatedNormal.y * 0.5f + 0.5f, interpolatedNormal.z * 0.5f + 0.5f, interpolatedH));
                 }
             }
             for (int i = 0; i != resolution + 1; ++i){
-                interpolatedNormals.SetPixel(0, i, new Color(0,1,0));
-                interpolatedNormals.SetPixel(i, 0, new Color(0,1,0));
-                interpolatedNormals.SetPixel(resolution, i, new Color(0,1,0));
-                interpolatedNormals.SetPixel(i, resolution, new Color(0,1,0));
+                interpolatedNormals.SetPixel(0, i, new Color(0, 1, 0, interpolatedNormals.GetPixel(1, i).a));
+                interpolatedNormals.SetPixel(i, 0, new Color(0, 1, 0, interpolatedNormals.GetPixel(i, 1).a));
+                interpolatedNormals.SetPixel(resolution, i, new Color(0, 1, 0, interpolatedNormals.GetPixel(resolution - 1, i).a));
+                interpolatedNormals.SetPixel(i, resolution, new Color(0, 1, 0, interpolatedNormals.GetPixel(i, resolution - 1).a));
             }
             interpolatedNormals.Apply();
-            computeShader.SetTexture(kernel, "Normal", interpolatedNormals);
+            computeShader.SetTexture(kernel, "NormalandH", interpolatedNormals);
 
             RenderTexture waterlevel = new RenderTexture(resolution - 1, resolution - 1, 24);
             waterlevel.enableRandomWrite = true;
             waterlevel.Create();
             computeShader.SetTexture(kernel, "waterlevel", waterlevel);
             computeShader.SetInt("waterlevelResolution", resolution - 1);
-            computeShader.Dispatch(kernel, 80, 80, 1);
+            computeShader.SetFloat("lowSnowLine", lowSnowline);
+            computeShader.SetFloat("highSnowLine", highSnowline);
+            int groups = Mathf.RoundToInt(Mathf.Sqrt((float)randomCount)) / 8;
+            computeShader.Dispatch(kernel, groups, groups, 1);
 
             RenderTexture.active = waterlevel;
 
@@ -112,9 +124,7 @@ public class RiverCreator : MonoBehaviour
 
     public Texture2D GatherBasinWater(Texture2D waterlevel){
         int waterResolution = waterlevel.width;
-        /*(valid, surface_height, )
-        valid > 0.5 means valid lake
-        */
+
         Texture2D lakeTexture = new Texture2D(waterResolution, waterResolution);
         var fillColorArray = lakeTexture.GetPixels();
         for (int i = 0; i != fillColorArray.Length; ++i){
@@ -133,7 +143,6 @@ public class RiverCreator : MonoBehaviour
                 }
             }
         }
-        Debug.Log("Total expension = " + exp_cnt);
         return lakeTexture;
     }
 
@@ -142,6 +151,8 @@ public class RiverCreator : MonoBehaviour
         LakeNeighbor.ter = terrian;
         LakeNeighbor.waterlevel = waterlevel;
         int waterResolution = waterlevel.width;
+
+        HashSet<Vector2Int> newConfirmedLakeGrids = new HashSet<Vector2Int>();
 
         /*Not necessarily to be considered as lake, until lake surface rises above*/
         SimplePriorityQueue<LakeNeighbor> lakeBorder = new SimplePriorityQueue<LakeNeighbor>();
@@ -154,6 +165,7 @@ public class RiverCreator : MonoBehaviour
         float lakeInflow = 0;
         int lakeArea = 0;
         float lakeSurfaceHeight = 0;
+        float confirmedLakeSurfaceHeight = 0;
 
         /*To be considered as lake before formally added to lakeTexture, waiting for border confirmation */
         HashSet<Vector2Int> pendingGrids = new HashSet<Vector2Int>();
@@ -173,11 +185,11 @@ public class RiverCreator : MonoBehaviour
             if (n.height > lakeSurfaceHeight){
                 // last border is confirmed:
                 foreach(Vector2Int grid in pendingGrids){
-                    lakeTexture.SetPixel(grid.x, grid.y, new Color(1,0,0,0));
+                    //lakeTexture.SetPixel(grid.x, grid.y, new Color(1,0,0,0));
+                    newConfirmedLakeGrids.Add(new Vector2Int(grid.x, grid.y));
                 }
-                lakeTexture.Apply();
                 pendingGrids.Clear();
-
+                confirmedLakeSurfaceHeight = lakeSurfaceHeight;
                 // try rising lake surface
                 lakeSurfaceHeight = n.height;
             }
@@ -195,7 +207,7 @@ public class RiverCreator : MonoBehaviour
                         Vector2Int newGrid = new Vector2Int(n.x + dx, n.y + dy);
                         if (
                             (dx != 0 || dy != 0) 
-                        && lakeTexture.GetPixel(n.x + dx, n.y + dy).r < 0.01f
+                        && !newConfirmedLakeGrids.Contains(newGrid)
                         && !lakeBorderHash.Contains(newGrid)
                         && !pendingGrids.Contains(newGrid)){
                             var newItem = new LakeNeighbor(n.x + dx, n.y+dy);
@@ -206,6 +218,11 @@ public class RiverCreator : MonoBehaviour
                 }
             }
         }
+
+        foreach(var grid in newConfirmedLakeGrids){
+            lakeTexture.SetPixel(grid.x, grid.y, new Color(1, confirmedLakeSurfaceHeight, 0));
+        }
+        lakeTexture.Apply();
     }
 
     private bool lakeInflowHolds(float waterLevelTotal, int waterArea){
@@ -222,7 +239,7 @@ struct LakeNeighbor{
     public LakeNeighbor(int x, int y){
         this.x = x;
         this.y = y;
-        this.height = ter.terrainData.GetInterpolatedHeight((x + 0.5f)/waterlevel.width , (y + 0.5f) / waterlevel.height);
+        this.height = ter.terrainData.GetInterpolatedHeight((x + 0.5f)/waterlevel.width , (y + 0.5f) / waterlevel.height) * 0.01f;
         this.waterLevel = waterlevel.GetPixel(x, y).r;
     }
 };

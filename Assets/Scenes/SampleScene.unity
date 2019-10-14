@@ -326,6 +326,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   heightMap: {fileID: 2800000, guid: 9d42e22aca3d64fefb04a52b9dee8e6c, type: 3}
   material: {fileID: 2100000, guid: 1060ce19026ca4bd3adbb1cf5ef11e73, type: 2}
+  smoothener: {fileID: 2100000, guid: 3d12b6698944a414698f4ebff3fd09b0, type: 2}
   heightMapResolution: 513
   outTerrian: {fileID: 0}
 --- !u!4 &1937504370
@@ -356,6 +357,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   randomCount: 100000
   penetrationRate: 0.01
+  dirRandomNess: 0.05
   stepLength: 1
   maxTraceLength: 300
   computeShader: {fileID: 7200000, guid: 4d00a0ff0d7ca426880d4dbac077e23d, type: 3}
+  lowSnowline: 0.7
+  highSnowline: 0.8
